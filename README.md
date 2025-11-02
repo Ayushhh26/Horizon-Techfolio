@@ -3,8 +3,8 @@
 A server-side application that provides technical analysis-based recommendations for individual investors managing ~20-stock portfolios across 1, 2, or 5-year horizons.
 
 ## Team Members
-- Nithik Pandya
-- Ayush Dodia  
+- Ayush Dodia
+- Nithik Pandya  
 - Vraj Shah
 
 ## System Overview
@@ -204,11 +204,6 @@ This project uses AI assistance for code generation. All AI-generated code is re
 - AI sometimes generates Express code despite pure Node.js requirement
 - Indicator calculations may have look-ahead bias without proper validation
 - API error handling needs manual review for completeness
-
-### AI Prompts Used
-- "Generate Jasmine unit tests for RSI indicator calculation"
-- "Create integration test for portfolio rebalancing endpoint"
-- "Write test cases for coupled trade hedge ratio calculation"
 
 
 
