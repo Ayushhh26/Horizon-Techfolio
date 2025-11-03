@@ -256,11 +256,12 @@ node -e "require('dotenv').config(); console.log('MongoDB:', process.env.MONGODB
 ## Example .env File
 
 ```bash
-# MongoDB Atlas Connection String
-MONGODB_URI=mongodb+srv://and179:Ayush%4026@cluster0.bogoylw.mongodb.net/horizontrader?retryWrites=true&w=majority
+# MongoDB Atlas Connection String (DO NOT COMMIT REAL CREDENTIALS)
+# Example placeholder format:
+MONGODB_URI=mongodb+srv://<username>:<password>@<cluster>.mongodb.net/horizontrader?retryWrites=true&w=majority
 
-# Alpha Vantage API Key
-ALPHA_VANTAGE_API_KEY=MN2S749NU20S4XMU
+# Alpha Vantage API Key (placeholder)
+ALPHA_VANTAGE_API_KEY=<your_api_key_here>
 
 # Database Configuration
 DB_REQUIRED=false
