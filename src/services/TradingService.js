@@ -381,30 +381,70 @@ class TradingService {
    */
   async getUserHoldings(userId) {
     try {
-      const portfolios = await PortfolioModel.find({ userId });
+      // Calculate holdings from wallet transactions (buy/sell)
+      const transactions = await TransactionModel.find({
+        userId,
+        type: { $in: ['buy', 'sell'] },
+        status: 'completed',
+        ticker: { $exists: true }
+      }).sort({ createdAt: 1 });
+
       const holdings = new Map();
 
-      for (const portfolio of portfolios) {
-        if (portfolio.positions && portfolio.positions.length > 0) {
-          for (const position of portfolio.positions) {
-            if (holdings.has(position.ticker)) {
-              const existing = holdings.get(position.ticker);
-              existing.quantity += position.quantity;
-              existing.totalValue += position.marketValue;
-            } else {
-              holdings.set(position.ticker, {
-                ticker: position.ticker,
-                quantity: position.quantity,
-                averageCost: position.averageCost,
-                currentPrice: position.currentPrice,
-                totalValue: position.marketValue
-              });
-            }
-          }
+      // Calculate net holdings from transactions
+      for (const tx of transactions) {
+        if (!tx.ticker) continue;
+
+        if (!holdings.has(tx.ticker)) {
+          holdings.set(tx.ticker, {
+            ticker: tx.ticker,
+            quantity: 0,
+            totalCostBasis: 0,
+            averageCost: 0,
+            currentPrice: 0,
+            totalValue: 0,
+            profitLoss: 0,
+            profitLossPercent: 0
+          });
+        }
+
+        const holding = holdings.get(tx.ticker);
+
+        if (tx.type === 'buy') {
+          holding.quantity += tx.quantity;
+          holding.totalCostBasis += tx.subtotal;
+        } else if (tx.type === 'sell') {
+          holding.quantity -= tx.quantity;
+          // Adjust cost basis proportionally
+          const avgCost = holding.totalCostBasis / (holding.quantity + tx.quantity);
+          holding.totalCostBasis -= avgCost * tx.quantity;
+        }
+
+        // Recalculate average cost
+        if (holding.quantity > 0) {
+          holding.averageCost = holding.totalCostBasis / holding.quantity;
         }
       }
 
-      return Array.from(holdings.values());
+      // Get current prices and calculate market values
+      const holdingsArray = Array.from(holdings.values()).filter(h => h.quantity > 0);
+      
+      for (const holding of holdingsArray) {
+        try {
+          const currentPrice = await this.getCurrentPrice(holding.ticker);
+          holding.currentPrice = currentPrice;
+          holding.totalValue = holding.quantity * currentPrice;
+          holding.profitLoss = holding.totalValue - holding.totalCostBasis;
+          holding.profitLossPercent = holding.totalCostBasis > 0 
+            ? (holding.profitLoss / holding.totalCostBasis) * 100 
+            : 0;
+        } catch (error) {
+          console.error(`Failed to get price for ${holding.ticker}:`, error.message);
+          // Keep zeros if price fetch fails
+        }
+      }
+
+      return holdingsArray;
     } catch (error) {
       console.error('Error getting user holdings:', error);
       throw error;

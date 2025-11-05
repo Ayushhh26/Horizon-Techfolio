@@ -12,7 +12,9 @@ const { validateStockSearch } = require('../middleware/validation.middleware');
 const {
   searchStocks,
   getPopularStocks,
-  getAvailableStocks
+  getAvailableStocks,
+  getWatchlist,
+  getStockDetails
 } = require('../routes');
 
 /**
@@ -49,6 +51,31 @@ router.get(
   '/available',
   asyncHandler(async (req, res) => {
     const result = await getAvailableStocks();
+    res.json(result);
+  })
+);
+
+/**
+ * GET /stocks/watchlist
+ * Get watchlist with current prices and daily changes
+ */
+router.get(
+  '/watchlist',
+  asyncHandler(async (req, res) => {
+    const result = await getWatchlist();
+    res.json(result);
+  })
+);
+
+/**
+ * GET /stocks/:ticker
+ * Get detailed stock information
+ */
+router.get(
+  '/:ticker',
+  asyncHandler(async (req, res) => {
+    const { ticker } = req.params;
+    const result = await getStockDetails(ticker);
     res.json(result);
   })
 );

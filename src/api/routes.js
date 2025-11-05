@@ -558,29 +558,50 @@ async function loginUser(body) {
 /**
  * Verify authentication token
  * POST /auth/verify
- * Headers: Authorization: Bearer <token>
+ * Body: { token: string } OR Headers: Authorization: Bearer <token>
  */
 async function verifyAuth(req) {
   try {
-    const decoded = AuthService.verifyRequest(req);
+    let decoded;
+    
+    // Try to get token from request body first
+    if (req.body && req.body.token) {
+      decoded = AuthService.verifyToken(req.body.token);
+    } else {
+      // Fall back to Authorization header
+      decoded = AuthService.verifyRequest(req);
+    }
     
     if (!decoded) {
-      throw new Error('Invalid or missing token');
+      return {
+        valid: false,
+        authenticated: false,
+        message: 'Invalid or missing token'
+      };
     }
 
     // Get fresh user data
     const user = await DBService.getUser(decoded.userId);
     if (!user) {
-      throw new Error('User not found');
+      return {
+        valid: false,
+        authenticated: false,
+        message: 'User not found'
+      };
     }
 
     return {
+      valid: true,
       authenticated: true,
       user: user.get_metadata()
     };
   } catch (error) {
     console.error('Auth verification error:', error.message);
-    throw error;
+    return {
+      valid: false,
+      authenticated: false,
+      message: error.message || 'Token verification failed'
+    };
   }
 }
 
@@ -727,6 +748,195 @@ async function getAvailableStocks() {
 }
 
 /**
+ * Get watchlist with current prices and daily changes
+ * GET /stocks/watchlist
+ */
+async function getWatchlist() {
+  try {
+    const { isDBConnected } = require('../db/connection');
+    
+    if (!isDBConnected()) {
+      return {
+        watchlist: [],
+        count: 0,
+        lastUpdated: null,
+        note: 'Database not connected. Please check your connection.'
+      };
+    }
+
+    // Get all tickers with price data
+    const priceDataDocs = await PriceDataModel.find({ interval: 'daily' })
+      .select('ticker data lastDate')
+      .sort({ ticker: 1 });
+
+    const watchlist = [];
+
+    for (const doc of priceDataDocs) {
+      if (!doc.data || doc.data.length < 2) {
+        continue; // Skip if insufficient data
+      }
+
+      // Get latest two data points to calculate change
+      const latestData = doc.data[doc.data.length - 1];
+      const previousData = doc.data[doc.data.length - 2];
+
+      const currentPrice = parseFloat(latestData.close);
+      const previousClose = parseFloat(previousData.close);
+      const change = currentPrice - previousClose;
+      const changePercent = (change / previousClose) * 100;
+
+      watchlist.push({
+        ticker: doc.ticker,
+        name: getStockName(doc.ticker), // Helper function for company names
+        price: currentPrice,
+        change: parseFloat(change.toFixed(2)),
+        changePercent: parseFloat(changePercent.toFixed(2)),
+        volume: latestData.volume ? parseInt(latestData.volume) : 0,
+        high: parseFloat(latestData.high),
+        low: parseFloat(latestData.low),
+        open: parseFloat(latestData.open),
+        date: latestData.date,
+        previousClose: previousClose
+      });
+    }
+
+    return {
+      watchlist,
+      count: watchlist.length,
+      lastUpdated: watchlist.length > 0 ? watchlist[0].date : null,
+      marketStatus: getMarketStatus() // Helper function for market hours
+    };
+  } catch (error) {
+    console.error('Error getting watchlist:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Helper: Get stock company name
+ */
+function getStockName(ticker) {
+  const names = {
+    'AAPL': 'Apple Inc.',
+    'AMZN': 'Amazon.com Inc.',
+    'BAC': 'Bank of America Corp.',
+    'CVX': 'Chevron Corporation',
+    'DIS': 'The Walt Disney Company',
+    'GOOGL': 'Alphabet Inc.',
+    'HD': 'The Home Depot Inc.',
+    'JNJ': 'Johnson & Johnson',
+    'JPM': 'JPMorgan Chase & Co.',
+    'MA': 'Mastercard Inc.',
+    'META': 'Meta Platforms Inc.',
+    'MSFT': 'Microsoft Corporation',
+    'NFLX': 'Netflix Inc.',
+    'NVDA': 'NVIDIA Corporation',
+    'PG': 'Procter & Gamble Co.',
+    'TSLA': 'Tesla Inc.',
+    'UNH': 'UnitedHealth Group Inc.',
+    'V': 'Visa Inc.',
+    'WMT': 'Walmart Inc.',
+    'XOM': 'Exxon Mobil Corporation'
+  };
+  return names[ticker] || ticker;
+}
+
+/**
+ * Get stock details with historical data
+ * GET /stocks/:ticker
+ */
+async function getStockDetails(ticker) {
+  try {
+    const { isDBConnected } = require('../db/connection');
+    
+    if (!isDBConnected()) {
+      throw new Error('Database not connected');
+    }
+
+    const tickerUpper = ticker.toUpperCase();
+    
+    // Get price data from database
+    const priceDataDoc = await PriceDataModel.findOne({ 
+      ticker: tickerUpper, 
+      interval: 'daily' 
+    });
+
+    if (!priceDataDoc || !priceDataDoc.data || priceDataDoc.data.length === 0) {
+      throw new Error(`No price data found for ${tickerUpper}`);
+    }
+
+    // Get latest data point
+    const latestData = priceDataDoc.data[priceDataDoc.data.length - 1];
+    const previousData = priceDataDoc.data.length >= 2 
+      ? priceDataDoc.data[priceDataDoc.data.length - 2] 
+      : latestData;
+
+    const currentPrice = parseFloat(latestData.close);
+    const previousClose = parseFloat(previousData.close);
+    const change = currentPrice - previousClose;
+    const changePercent = (change / previousClose) * 100;
+
+    // Calculate 52-week high/low
+    const prices = priceDataDoc.data.map(d => parseFloat(d.close));
+    const high52w = Math.max(...prices);
+    const low52w = Math.min(...prices);
+
+    // Get last 30 days of data for chart
+    const recentData = priceDataDoc.data.slice(-30).map(d => ({
+      date: d.date,
+      open: parseFloat(d.open),
+      high: parseFloat(d.high),
+      low: parseFloat(d.low),
+      close: parseFloat(d.close),
+      volume: d.volume ? parseInt(d.volume) : 0
+    }));
+
+    return {
+      ticker: tickerUpper,
+      name: getStockName(tickerUpper),
+      currentPrice,
+      change: parseFloat(change.toFixed(2)),
+      changePercent: parseFloat(changePercent.toFixed(2)),
+      previousClose,
+      volume: latestData.volume ? parseInt(latestData.volume) : 0,
+      high: parseFloat(latestData.high),
+      low: parseFloat(latestData.low),
+      open: parseFloat(latestData.open),
+      high52w,
+      low52w,
+      date: latestData.date,
+      lastUpdated: priceDataDoc.lastDate,
+      historicalData: recentData,
+      totalDataPoints: priceDataDoc.data.length
+    };
+  } catch (error) {
+    console.error(`Error getting stock details for ${ticker}:`, error.message);
+    throw error;
+  }
+}
+
+/**
+ * Helper: Get market status
+ */
+function getMarketStatus() {
+  const now = new Date();
+  const day = now.getUTCDay();
+  const hour = now.getUTCHours();
+  
+  // Market is open Mon-Fri, 9:30 AM - 4:00 PM EST (14:30 - 21:00 UTC)
+  const isWeekday = day >= 1 && day <= 5;
+  const isMarketHours = hour >= 14 && (hour < 21 || (hour === 21 && now.getUTCMinutes() === 0));
+  
+  if (isWeekday && isMarketHours) {
+    return 'open';
+  } else if (isWeekday) {
+    return 'closed';
+  } else {
+    return 'weekend';
+  }
+}
+
+/**
  * Get list of commonly available stocks (popular US stocks)
  * GET /stocks/popular
  * Returns: Array of popular stock symbols with metadata
@@ -810,5 +1020,7 @@ module.exports = {
   getUserPortfolios,
   searchStocks,
   getPopularStocks,
-  getAvailableStocks
+  getAvailableStocks,
+  getWatchlist,
+  getStockDetails
 };

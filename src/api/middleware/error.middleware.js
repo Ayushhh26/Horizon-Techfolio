@@ -34,8 +34,8 @@ const errorHandler = (err, req, res, next) => {
   if (err.name === 'ValidationError') {
     statusCode = 400;
     return res.status(statusCode).json({
-      error: 'Validation Error',
-      message: err.message,
+      error: err.message || 'Validation Error',
+      type: 'ValidationError',
       details: err.errors || {},
       ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
     });
@@ -44,8 +44,8 @@ const errorHandler = (err, req, res, next) => {
   if (err.name === 'UnauthorizedError' || err.message.includes('token') || err.message.includes('authentication')) {
     statusCode = 401;
     return res.status(statusCode).json({
-      error: 'Unauthorized',
-      message: 'Invalid or expired authentication token',
+      error: 'Invalid or expired authentication token',
+      type: 'UnauthorizedError',
       ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
     });
   }
@@ -53,8 +53,8 @@ const errorHandler = (err, req, res, next) => {
   if (err.name === 'CastError') {
     statusCode = 400;
     return res.status(statusCode).json({
-      error: 'Invalid ID',
-      message: 'The provided ID format is not valid',
+      error: 'The provided ID format is not valid',
+      type: 'CastError',
       ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
     });
   }
@@ -62,8 +62,8 @@ const errorHandler = (err, req, res, next) => {
   if (err.name === 'MongoError' && err.code === 11000) {
     statusCode = 409;
     return res.status(statusCode).json({
-      error: 'Duplicate Entry',
-      message: 'A record with this value already exists',
+      error: 'A record with this value already exists',
+      type: 'DuplicateEntry',
       ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
     });
   }
@@ -73,9 +73,10 @@ const errorHandler = (err, req, res, next) => {
     ? 'Internal server error'
     : err.message || 'Something went wrong';
 
+  // For better frontend compatibility, put the main error message in the 'error' field
   res.status(statusCode).json({
-    error: err.name || 'Error',
-    message,
+    error: message,  // The actual error message goes here
+    type: err.name || 'Error',  // Error type/name for debugging
     ...(process.env.NODE_ENV !== 'production' && {
       stack: err.stack,
       url: req.originalUrl,
