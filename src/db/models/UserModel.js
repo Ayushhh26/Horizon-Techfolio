@@ -1,6 +1,6 @@
 /**
  * Mongoose model for User persistence
- * Minimal implementation: userId, name, email
+ * Includes: userId, name, email, passwordHash
  */
 
 const mongoose = require('mongoose');
@@ -10,6 +10,7 @@ const UserSchema = new Schema({
   userId: { type: String, required: true, unique: true },
   name: { type: String, required: true },
   email: { type: String, default: null },
+  passwordHash: { type: String, default: null }, // Hashed password for authentication
   createdAt: { type: Date, default: Date.now }
 }, {
   timestamps: false
@@ -26,6 +27,7 @@ UserSchema.methods.toUserObject = function() {
     userId: this.userId,
     name: this.name,
     email: this.email,
+    passwordHash: this.passwordHash,
     createdAt: this.createdAt
   };
 };

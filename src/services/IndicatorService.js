@@ -218,6 +218,23 @@ class MACDIndicator extends TechnicalIndicator {
     };
   }
 
+  generateSignals(priceData, values) {
+    // Override base class method since values is an object, not array
+    const signals = [];
+    
+    if (!values.macdLine || !values.signalLine || values.macdLine.length === 0) {
+      return signals;
+    }
+    
+    // Generate signals for each valid index where both MACD and signal lines exist
+    for (let i = 0; i < values.macdLine.length; i++) {
+      const signal = this.calculateSignal(priceData, values, i);
+      signals.push(signal);
+    }
+    
+    return signals;
+  }
+
   calculateSignal(priceData, values, index) {
     if (!values.macdLine || !values.signalLine || index < 1) return 'hold';
     
@@ -278,6 +295,23 @@ class BollingerBandsIndicator extends TechnicalIndicator {
     return bands;
   }
 
+  generateSignals(priceData, values) {
+    // Override base class method since values is an object, not array
+    const signals = [];
+    
+    if (!values.upper || !values.lower || values.upper.length === 0) {
+      return signals;
+    }
+    
+    // Generate signals for each band data point
+    for (let i = 0; i < values.upper.length; i++) {
+      const signal = this.calculateSignal(priceData, values, i);
+      signals.push(signal);
+    }
+    
+    return signals;
+  }
+
   calculateSignal(priceData, values, index) {
     if (index < 0 || index >= values.upper.length) return 'hold';
     
@@ -300,21 +334,29 @@ class BollingerBandsIndicator extends TechnicalIndicator {
   }
 
   getSignalStrength(index) {
-    if (index < 0 || index >= this.values.upper.length) {
+    if (!this.values || !this.values.upper || index < 0 || index >= this.values.upper.length) {
       return 0;
     }
 
-    const currentPrice = priceData[index + this.window - 1].close;
+    // Need priceData to calculate, but we can use a simplified version
+    // In practice, this would need access to priceData, but for now return based on position in bands
     const upperBand = this.values.upper[index];
     const lowerBand = this.values.lower[index];
     const middleBand = this.values.middle[index];
     
-    // Calculate how far price is from the middle band
+    // Get current price from the last signal calculation context
+    // For now, estimate based on band position
     const bandWidth = upperBand - lowerBand;
-    const distanceFromMiddle = Math.abs(currentPrice - middleBand);
     
-    // Stronger signal the closer to the bands
-    return Math.min(1.0, distanceFromMiddle / (bandWidth / 2));
+    if (bandWidth === 0) return 0.5;
+    
+    // If we have a signal (buy or sell), price is at a band, so strength is high
+    const signal = this.signals[index];
+    if (signal === 'buy' || signal === 'sell') {
+      return 0.8; // Strong signal when price touches bands
+    }
+    
+    return 0.5; // Moderate when in middle
   }
 }
 

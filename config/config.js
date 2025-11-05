@@ -47,7 +47,31 @@ module.exports = {
   // Application Settings
   app: {
     port: process.env.PORT || 3000,
-    host: process.env.HOST || 'localhost'
+    host: process.env.HOST || 'localhost',
+    env: process.env.NODE_ENV || 'development'
+  },
+
+  // Express Server Configuration
+  express: {
+    // CORS settings
+    cors: {
+      origin: process.env.CORS_ORIGIN || '*',
+      credentials: true
+    },
+    // Rate limiting
+    rateLimit: {
+      windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
+      maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+      authWindowMs: 15 * 60 * 1000, // 15 minutes for auth
+      authMaxRequests: 5 // 5 login attempts per window
+    },
+    // Logging
+    logging: {
+      level: process.env.LOG_LEVEL || 'info',
+      format: process.env.NODE_ENV === 'production' ? 'combined' : 'dev'
+    },
+    // Body parser limits
+    bodyLimit: '10mb'
   },
 
   // Trading Configuration

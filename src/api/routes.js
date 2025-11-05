@@ -9,7 +9,10 @@ const Strategy = require('../models/Strategy');
 const StrategyService = require('../services/StrategyService');
 const DBService = require('../db/dbService');
 const PriceDataService = require('../services/PriceDataService');
+const AuthService = require('../services/AuthService');
 const dailyUpdateService = require('../services/DailyUpdateService');
+const PriceDataModel = require('../db/models/PriceDataModel');
+const { isDBConnected } = require('../db/connection');
 // Note: BacktestSession, CoupledTrade, and PaperTradingService will be implemented in later phases
 
 const strategyService = new StrategyService();
@@ -50,29 +53,80 @@ async function initializePortfolio(body) {
     console.log(`Initializing portfolio for user ${userId} with ${tickers.length} tickers for ${horizon}-year horizon`);
 
     // Validate all tickers
+    // First, check database for existing data (faster and avoids API calls)
     const securities = [];
     const validationResults = [];
 
+    // Known tickers list (for validation when API is rate limited)
+    const knownTickers = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NVDA', 'JPM', 'JNJ', 'V', 'WMT', 'PG', 'UNH', 'HD', 'MA', 'DIS', 'BAC', 'XOM', 'CVX', 'NFLX'];
+
     for (const ticker of tickers) {
+      const tickerUpper = ticker.toUpperCase();
+      let isValid = false;
+      let validationNote = '';
+      
       try {
         const security = new Security(ticker);
-        const isValid = await security.validate_symbol();
         
+        // Step 1: Check database first (fastest, no API calls)
+        try {
+          if (isDBConnected()) {
+            const priceDataDoc = await PriceDataModel.findOne({ ticker: tickerUpper, interval: 'daily' });
+            if (priceDataDoc && priceDataDoc.data && Array.isArray(priceDataDoc.data) && priceDataDoc.data.length > 0) {
+              isValid = true;
+              validationNote = `Database (${priceDataDoc.data.length} records)`;
+              console.log(`✅ ${tickerUpper}: Validated via ${validationNote}`);
+            } else {
+              console.log(`ℹ️  ${tickerUpper}: Not found in database (doc exists: ${!!priceDataDoc})`);
+            }
+          } else {
+            console.log(`ℹ️  ${tickerUpper}: Database not connected, skipping DB check`);
+          }
+        } catch (dbError) {
+          console.log(`⚠️  Database check for ${tickerUpper} failed: ${dbError.message}`);
+        }
+        
+        // Step 2: If not in database, check if it's a known ticker (avoids API calls when rate limited)
+        if (!isValid && knownTickers.includes(tickerUpper)) {
+          isValid = true;
+          validationNote = 'Known ticker (from our 20-stock list)';
+          console.log(`✅ ${tickerUpper}: Validated as ${validationNote}`);
+        }
+        
+        // Step 3: If still not valid, try API validation (may fail if rate limited)
+        if (!isValid) {
+          try {
+            isValid = await security.validate_symbol();
+            if (isValid) {
+              validationNote = 'API validation';
+            }
+          } catch (apiError) {
+            // API failed - if it's a known ticker, we already validated it above
+            // If not known, mark as invalid
+            if (!knownTickers.includes(tickerUpper)) {
+              console.log(`⚠️  ${tickerUpper}: API validation failed and not in known ticker list: ${apiError.message}`);
+            }
+          }
+        }
+        
+        // Add to results
         if (isValid) {
           securities.push(security);
-          validationResults.push({ ticker, status: 'valid' });
+          validationResults.push({ ticker: tickerUpper, status: 'valid', note: validationNote });
         } else {
-          validationResults.push({ ticker, status: 'invalid', error: 'Symbol not found' });
+          validationResults.push({ ticker: tickerUpper, status: 'invalid', error: 'Symbol not found or not validated' });
         }
       } catch (error) {
-        validationResults.push({ ticker, status: 'error', error: error.message });
+        console.error(`Error validating ${tickerUpper}:`, error.message);
+        validationResults.push({ ticker: tickerUpper, status: 'error', error: error.message });
       }
     }
 
     // Check if we have enough valid securities
     const validSecurities = securities.filter(s => s);
     if (validSecurities.length === 0) {
-      throw new Error('No valid tickers found');
+      console.error('Validation failed. Results:', JSON.stringify(validationResults, null, 2));
+      throw new Error(`No valid tickers found. Validation results: ${JSON.stringify(validationResults)}`);
     }
 
     // Initialize price data for all valid tickers (background, non-blocking)
@@ -152,10 +206,31 @@ async function getPortfolioSignals(portfolioId) {
     // Generate signals
     const signals = strategy.generate_signals(priceDataMap);
     
+    // Ensure all tickers have signals (add default for missing data)
+    const allTickers = portfolio.getTickers();
+    const signalArray = Array.from(signals.values());
+    
+    // Add default signals for tickers without price data
+    for (const ticker of allTickers) {
+      const hasSignal = signalArray.some(s => s.ticker === ticker);
+      if (!hasSignal) {
+        signalArray.push({
+          ticker,
+          signal: 'hold',
+          confidence: 0,
+          strength: 'N/A',
+          price: null,
+          reason: 'Insufficient price data to generate signal',
+          indicators: {},
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+    
     return {
       portfolioId,
       strategy: recommendation.strategy,
-      signals: Array.from(signals.values()),
+      signals: signalArray,
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -190,13 +265,14 @@ async function getPortfolioStrategy(portfolioId) {
     return {
       portfolioId,
       strategy: {
-        name: explanation.name,
-        description: explanation.description,
-        frequency: explanation.frequency,
-        indicators: explanation.indicators.map(ind => ind.type),
+        name: explanation.name || strategy.name,
+        description: explanation.description || strategy.getStrategyDescription(),
+        frequency: explanation.frequency || recommendation.frequency || strategy.rebalance_freq,
+        indicators: explanation.indicators ? explanation.indicators.map(ind => ind.type) : strategy.indicators.map(ind => ind.type),
         confidence: recommendation.confidence
       },
       recommendation: recommendation.reasoning,
+      reasoning: recommendation.reasoning,
       timestamp: new Date().toISOString()
     };
   } catch (error) {
@@ -395,26 +471,101 @@ async function getPortfolioPerformance(portfolioId) {
 /**
  * Create or update a user
  * POST /user
- * Body: { userId: string, name: string, email?: string }
+ * Body: { userId: string, name: string, email?: string, password?: string }
  */
 async function createUser(body) {
   try {
-    const { userId, name, email } = body;
+    const { userId, name, email, password } = body;
     
     if (!userId || !name) {
       throw new Error('userId and name are required');
     }
 
-    await DBService.saveUser(userId, name, email || null);
+    // Validate password if provided
+    if (password && password.length < 6) {
+      throw new Error('Password must be at least 6 characters long');
+    }
+
+    await DBService.saveUser(userId, name, email || null, password || null);
     
     return {
       userId,
       name,
       email: email || null,
-      message: 'User created successfully'
+      message: password ? 'User created successfully with password' : 'User created successfully (no password set)'
     };
   } catch (error) {
     console.error('User creation error:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Login user
+ * POST /auth/login
+ * Body: { userId: string, password: string }
+ */
+async function loginUser(body) {
+  try {
+    const { userId, password } = body;
+    
+    if (!userId || !password) {
+      throw new Error('userId and password are required');
+    }
+
+    // Verify password
+    const isValid = await DBService.verifyPassword(userId, password);
+    
+    if (!isValid) {
+      throw new Error('Invalid userId or password');
+    }
+
+    // Get user details
+    const user = await DBService.getUser(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Generate JWT token
+    const token = AuthService.generateToken(user.userId, user.name);
+    
+    return {
+      success: true,
+      token,
+      user: user.get_metadata(),
+      message: 'Login successful'
+    };
+  } catch (error) {
+    console.error('Login error:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Verify authentication token
+ * POST /auth/verify
+ * Headers: Authorization: Bearer <token>
+ */
+async function verifyAuth(req) {
+  try {
+    const decoded = AuthService.verifyRequest(req);
+    
+    if (!decoded) {
+      throw new Error('Invalid or missing token');
+    }
+
+    // Get fresh user data
+    const user = await DBService.getUser(decoded.userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    return {
+      authenticated: true,
+      user: user.get_metadata()
+    };
+  } catch (error) {
+    console.error('Auth verification error:', error.message);
     throw error;
   }
 }
@@ -521,6 +672,47 @@ async function searchStocks(body) {
 }
 
 /**
+ * Get list of stocks available in database (with price data)
+ * GET /stocks/available
+ */
+async function getAvailableStocks() {
+  try {
+    const { isDBConnected } = require('../db/connection');
+    
+    if (!isDBConnected()) {
+      return {
+        stocks: [],
+        count: 0,
+        note: 'Database not connected. Please check your connection.'
+      };
+    }
+
+    // Get all tickers that have price data in the database
+    const priceDataDocs = await PriceDataModel.find({ interval: 'daily' })
+      .select('ticker lastDate totalDataPoints')
+      .sort({ ticker: 1 });
+
+    const stocks = priceDataDocs.map(doc => ({
+      ticker: doc.ticker,
+      lastDate: doc.lastDate,
+      dataPoints: doc.totalDataPoints || 0,
+      available: true
+    }));
+
+    return {
+      stocks,
+      count: stocks.length,
+      note: stocks.length > 0 
+        ? `Found ${stocks.length} stocks with historical data in database`
+        : 'No stocks found in database. Run populate-db script to add data.'
+    };
+  } catch (error) {
+    console.error('Error getting available stocks:', error.message);
+    throw error;
+  }
+}
+
+/**
  * Get list of commonly available stocks (popular US stocks)
  * GET /stocks/popular
  * Returns: Array of popular stock symbols with metadata
@@ -598,8 +790,11 @@ module.exports = {
   generateCoupledTrade,
   getPortfolioPerformance,
   createUser,
+  loginUser,
+  verifyAuth,
   getUser,
   getUserPortfolios,
   searchStocks,
-  getPopularStocks
+  getPopularStocks,
+  getAvailableStocks
 };

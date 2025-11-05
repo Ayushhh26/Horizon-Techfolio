@@ -42,7 +42,8 @@ HorizonTrader computes technical indicators, derives strategy signals (Buy/Hold/
 
 ### Prerequisites
 - Node.js 14.0.0 or higher
-- Alpha Vantage API key (free tier: 5 calls/min, 500/day)
+- MongoDB Atlas account (or local MongoDB instance)
+- Alpha Vantage API key(s) (free tier: 5 calls/min, 500/day)
 
 ### Setup
 1. Clone the repository
@@ -50,13 +51,26 @@ HorizonTrader computes technical indicators, derives strategy signals (Buy/Hold/
    ```bash
    npm install
    ```
-3. Set up environment variables:
+3. Set up environment variables (copy `.env.example` to `.env`):
    ```bash
-   export ALPHA_VANTAGE_API_KEY="your_api_key_here"
+   cp .env.example .env
    ```
-4. Start the server:
+4. Edit `.env` and add your credentials:
+   ```
+   MONGODB_URI=your_mongodb_connection_string
+   ALPHA_VANTAGE_API_KEY=your_primary_api_key
+   ALPHA_VANTAGE_API_KEY_2=your_secondary_api_key (optional)
+   JWT_SECRET=your_secure_jwt_secret
+   NODE_ENV=development
+   PORT=3000
+   ```
+5. Start the server:
    ```bash
    npm start
+   ```
+6. (Optional) Populate database with historical data:
+   ```bash
+   npm run populate-db
    ```
 
 ## API Endpoints
@@ -130,19 +144,31 @@ npm run test:watch
 
 ## Technical Implementation
 
-### Pure Node.js Server
-- No Express framework (course requirement)
-- Manual HTTP routing and JSON parsing
-- Built-in CORS support
+### Express.js Server
+- **Production-ready Express.js setup**
+- Modular router architecture
+- Comprehensive middleware stack:
+  - **Security**: Helmet for HTTP headers
+  - **Logging**: Morgan for request logging  
+  - **Compression**: Gzip compression for responses
+  - **Rate Limiting**: Express-rate-limit (100 req/15min global, 5 req/15min for auth)
+  - **Validation**: Express-validator for request validation
+  - **Error Handling**: Centralized error middleware
+  - **CORS**: Configurable cross-origin support
 
 ### Data Management
+- **MongoDB Atlas** with Mongoose ODM
 - Alpha Vantage API for market data
+- 10 years of historical data for 20 stocks
+- API key rotation for rate limit management
 - Aggressive caching to minimize API calls
-- In-memory storage for portfolios/sessions
+- Daily automated updates via cron jobs
 
 ### Rate Limiting
-- Respects Alpha Vantage free tier limits
-- Automatic retry with exponential backoff
+- Global rate limit: 100 requests per 15 minutes
+- Authentication rate limit: 5 attempts per 15 minutes
+- Respects Alpha Vantage free tier limits (5 calls/min, 500/day)
+- Automatic API key rotation between multiple keys
 - Graceful degradation when rate limited
 
 ## Development Status
@@ -195,18 +221,20 @@ npm run test:watch
 
 MIT License - see LICENSE file for details
 
+## Documentation
+
+For detailed documentation, see the `/docs` directory:
+- **Setup Guides**: `/docs/setup/` - Environment, database, cron, indicators
+- **Migration Docs**: `/docs/migration/` - Express.js migration details
+- **Project Plan**: `/docs/project/` - Development roadmap
+
 ## Contributing
 
 This is a course project. Please refer to the course guidelines for contribution rules.
 
 ## AI Code Generation
 
-This project uses AI assistance for code generation. All AI-generated code is reviewed, tested, and documented. Issues encountered with AI-generated code are tracked for the course report.
-
-### Known Issues
-- AI sometimes generates Express code despite pure Node.js requirement
-- Indicator calculations may have look-ahead bias without proper validation
-- API error handling needs manual review for completeness
+This project uses AI assistance for code generation. All AI-generated code is reviewed, tested, and documented.
 
 
 

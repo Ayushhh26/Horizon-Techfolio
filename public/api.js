@@ -12,12 +12,21 @@ class APIClient {
 
     async request(endpoint, options = {}) {
         const url = `${this.baseUrl}${endpoint}`;
+        
+        // Add auth token if available
+        const token = localStorage.getItem('authToken');
+        const headers = {
+            'Content-Type': 'application/json',
+            ...options.headers
+        };
+        
+        if (token && !headers['Authorization']) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+        
         const config = {
             ...options,
-            headers: {
-                'Content-Type': 'application/json',
-                ...options.headers
-            }
+            headers
         };
 
         try {
@@ -36,10 +45,31 @@ class APIClient {
     }
 
     // User Management
-    async createUser(userId, name, email = null) {
+    async createUser(userId, name, email = null, password = null) {
         return this.request('/user', {
             method: 'POST',
-            body: JSON.stringify({ userId, name, email })
+            body: JSON.stringify({ userId, name, email, password })
+        });
+    }
+
+    // Authentication
+    async login(userId, password) {
+        return this.request('/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ userId, password })
+        });
+    }
+
+    async verifyAuth() {
+        const token = localStorage.getItem('authToken');
+        if (!token) {
+            throw new Error('No token found');
+        }
+        return this.request('/auth/verify', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
         });
     }
 
@@ -93,6 +123,10 @@ class APIClient {
 
     async getPopularStocks() {
         return this.request('/stocks/popular');
+    }
+
+    async getAvailableStocks() {
+        return this.request('/stocks/available');
     }
 
     // Backtesting

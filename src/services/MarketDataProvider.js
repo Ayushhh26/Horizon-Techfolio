@@ -227,7 +227,8 @@ class MarketDataProvider {
         // Check if it's a rate limit message
         if (note.toLowerCase().includes('call frequency') || 
             note.toLowerCase().includes('api call volume') ||
-            note.toLowerCase().includes('thank you for using alpha vantage')) {
+            note.toLowerCase().includes('thank you for using alpha vantage') ||
+            note.toLowerCase().includes('rate limit')) {
           
           console.log(`⛔ Rate limit detected for key ${this.currentKeyIndex + 1}: ${note}`);
           this.markKeyRateLimited(this.currentKeyIndex);
@@ -245,10 +246,29 @@ class MarketDataProvider {
         throw new Error(`API Note: ${note}`);
       }
       
+      // Check for daily rate limit in Information field
+      if (data['Information']) {
+        const info = data['Information'];
+        if (info.toLowerCase().includes('rate limit') || info.toLowerCase().includes('25 requests per day')) {
+          console.log(`⛔ Daily rate limit detected for key ${this.currentKeyIndex + 1}: ${info}`);
+          this.markKeyRateLimited(this.currentKeyIndex);
+          
+          // Try to switch to another key and retry
+          if (this.enableKeyRotation && this.apiKeys.length > 1 && retryCount < this.apiKeys.length) {
+            if (this.switchToNextKey()) {
+              console.log(`🔄 Retrying with different API key due to daily limit...`);
+              return this.makeApiCall(params, retryCount + 1);
+            }
+          }
+          
+          throw new Error(`Daily rate limit reached. ${info}`);
+        }
+      }
+      
       return data;
     } catch (error) {
-      // If it's a rate limit error and we haven't exhausted retries, try next key
-      if (error.message.includes('Rate limit') && 
+      // If it's a rate limit error (daily or per-minute) and we haven't exhausted retries, try next key
+      if ((error.message.includes('Rate limit') || error.message.includes('rate limit')) && 
           this.enableKeyRotation && 
           this.apiKeys.length > 1 && 
           retryCount < this.apiKeys.length) {
@@ -290,8 +310,30 @@ class MarketDataProvider {
 
       const data = await this.makeApiCall(params);
       
+      // Check for API errors first
+      if (data['Error Message']) {
+        throw new Error(`API Error for ${ticker}: ${data['Error Message']}`);
+      }
+      
+      // Check for rate limit information (daily limit reached)
+      if (data['Information']) {
+        const info = data['Information'];
+        if (info.toLowerCase().includes('rate limit') || info.toLowerCase().includes('25 requests per day')) {
+          console.log(`⛔ Daily rate limit reached for key ${this.currentKeyIndex + 1}`);
+          this.markKeyRateLimited(this.currentKeyIndex);
+          throw new Error(`Daily rate limit reached. ${info}`);
+        }
+        throw new Error(`API Information: ${info}`);
+      }
+      
+      if (data['Note']) {
+        throw new Error(`API Note for ${ticker}: ${data['Note']}`);
+      }
+      
       if (!data['Time Series (Daily)']) {
-        throw new Error(`No time series data found for ${ticker}`);
+        // Log the actual response to debug
+        console.error(`Unexpected response for ${ticker}:`, JSON.stringify(data).substring(0, 200));
+        throw new Error(`No time series data found for ${ticker}. Response keys: ${Object.keys(data).join(', ')}`);
       }
 
       const timeSeries = data['Time Series (Daily)'];

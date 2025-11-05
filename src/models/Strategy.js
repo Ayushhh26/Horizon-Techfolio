@@ -89,10 +89,20 @@ class Strategy {
     const confidence = this.calculateConfidence(indicatorSignals, priceData);
     const reason = this.generateReason(finalSignal, indicatorSignals);
 
+    // Get current price from latest price data point
+    const currentPrice = priceData && priceData.length > 0 
+      ? priceData[priceData.length - 1].close 
+      : null;
+
+    // Map confidence to strength (0-1 scale)
+    const strength = this.mapConfidenceToStrength(confidence);
+
     return {
       ticker,
       signal: finalSignal,
       confidence,
+      strength,
+      price: currentPrice,
       reason,
       indicators: indicatorResults,
       timestamp: new Date().toISOString()
@@ -150,6 +160,19 @@ class Strategy {
     }
 
     return 'hold';
+  }
+
+  /**
+   * Map confidence (0-1) to strength description
+   * @param {number} confidence - Confidence level (0-1)
+   * @returns {string} Strength description
+   */
+  mapConfidenceToStrength(confidence) {
+    if (confidence >= 0.8) return 'Very Strong';
+    if (confidence >= 0.6) return 'Strong';
+    if (confidence >= 0.4) return 'Moderate';
+    if (confidence >= 0.2) return 'Weak';
+    return 'Very Weak';
   }
 
   /**

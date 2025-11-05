@@ -11,6 +11,7 @@ const UserModel = require('./models/UserModel');
 const Portfolio = require('../models/Portfolio');
 const Security = require('../models/Security');
 const User = require('../models/User');
+const bcrypt = require('bcrypt');
 
 // In-memory fallback storage
 const memoryPortfolios = new Map();
@@ -32,29 +33,88 @@ class DBService {
 
   /**
    * Save user to database or memory
+   * @param {string} userId - User ID
+   * @param {string} name - User name
+   * @param {string|null} email - User email (optional)
+   * @param {string|null} password - Plain text password (will be hashed)
    */
-  static async saveUser(userId, name, email = null) {
+  static async saveUser(userId, name, email = null, password = null) {
+    let passwordHash = null;
+    
+    // Hash password if provided
+    if (password) {
+      try {
+        passwordHash = await bcrypt.hash(password, 10);
+      } catch (error) {
+        console.error('Error hashing password:', error.message);
+        throw new Error('Failed to hash password');
+      }
+    }
+    
     if (this.useDatabase()) {
       try {
         await UserModel.findOneAndUpdate(
           { userId },
-          { userId, name, email, createdAt: new Date() },
+          { userId, name, email, passwordHash, createdAt: new Date() },
           { upsert: true, new: true }
         );
         return true;
       } catch (error) {
         console.error('Error saving user to database:', error.message);
-        memoryUsers.set(userId, new User(userId, name, email));
+        memoryUsers.set(userId, new User(userId, name, email, passwordHash));
         return false;
       }
     } else {
-      memoryUsers.set(userId, new User(userId, name, email));
+      memoryUsers.set(userId, new User(userId, name, email, passwordHash));
       return true;
+    }
+  }
+  
+  /**
+   * Verify user password
+   * @param {string} userId - User ID
+   * @param {string} password - Plain text password to verify
+   * @returns {Promise<boolean>} True if password matches
+   */
+  static async verifyPassword(userId, password) {
+    const user = await this.getUserWithPassword(userId);
+    if (!user || !user.passwordHash) {
+      return false;
+    }
+    
+    try {
+      return await bcrypt.compare(password, user.passwordHash);
+    } catch (error) {
+      console.error('Error verifying password:', error.message);
+      return false;
+    }
+  }
+  
+  /**
+   * Get user with password hash (for authentication)
+   * @param {string} userId - User ID
+   * @returns {Promise<User|null>} User object with password hash
+   */
+  static async getUserWithPassword(userId) {
+    if (this.useDatabase()) {
+      try {
+        const userDoc = await UserModel.findOne({ userId });
+        if (!userDoc) {
+          return null;
+        }
+        return new User(userDoc.userId, userDoc.name, userDoc.email, userDoc.passwordHash);
+      } catch (error) {
+        console.error('Error loading user from database:', error.message);
+        const user = memoryUsers.get(userId);
+        return user || null;
+      }
+    } else {
+      return memoryUsers.get(userId) || null;
     }
   }
 
   /**
-   * Get user from database or memory
+   * Get user from database or memory (without password hash)
    */
   static async getUser(userId) {
     if (this.useDatabase()) {
@@ -63,13 +123,24 @@ class DBService {
         if (!userDoc) {
           return null;
         }
-        return new User(userDoc.userId, userDoc.name, userDoc.email);
+        // Return user without password hash for security
+        return new User(userDoc.userId, userDoc.name, userDoc.email, null);
       } catch (error) {
         console.error('Error loading user from database:', error.message);
-        return memoryUsers.get(userId) || null;
+        const user = memoryUsers.get(userId);
+        if (user) {
+          // Return user without password hash
+          return new User(user.userId, user.name, user.email, null);
+        }
+        return null;
       }
     } else {
-      return memoryUsers.get(userId) || null;
+      const user = memoryUsers.get(userId);
+      if (user) {
+        // Return user without password hash
+        return new User(user.userId, user.name, user.email, null);
+      }
+      return null;
     }
   }
 
@@ -84,6 +155,7 @@ class DBService {
           portfolioId: doc.portfolioId,
           userId: doc.userId,
           horizon: doc.horizon,
+          securities: doc.securities || [],
           createdAt: doc.createdAt
         }));
       } catch (error) {

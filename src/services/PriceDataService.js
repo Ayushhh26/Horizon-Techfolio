@@ -118,30 +118,34 @@ class PriceDataService {
     try {
       const existing = await PriceDataModel.findOne({ ticker, interval });
       
-      if (!existing || existing.needsUpdate()) {
-        // Get last date we have
-        const lastDate = existing ? existing.lastDate : '2000-01-01';
-        const today = new Date();
-        const yesterday = new Date(today);
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayStr = yesterday.toISOString().split('T')[0];
+      // Calculate yesterday's date (last trading day)
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+      
+      if (!existing) {
+        // No data exists - initialize with full history
+        console.log(`📥 No data exists for ${ticker}, initializing...`);
+        await this.initializeTickerData(ticker, interval);
+        return;
+      }
+      
+      // Check if we need to update (data is older than yesterday)
+      if (existing.lastDate < yesterdayStr) {
+        console.log(`🔄 Updating ${ticker} with latest data (last date: ${existing.lastDate}, fetching up to ${yesterdayStr})`);
         
-        // Only fetch if we don't have yesterday's data yet
-        if (!existing || lastDate < yesterdayStr) {
-          console.log(`🔄 Updating ${ticker} with latest data (last date: ${lastDate})`);
-          
-          // Fetch full data (API gives us full history anyway)
-          // But we can optimize by only requesting recent dates if we have most data
-          const startDate = existing ? lastDate : '2000-01-01';
-          const endDate = yesterdayStr;
-          
-          const newData = await this.marketDataProvider.get_prices(ticker, startDate, endDate, interval);
-          if (newData && newData.length > 0) {
-            await this.saveToDatabase(ticker, newData, interval);
-          }
+        // Fetch from lastDate to yesterday (API returns all data in range, but we'll filter duplicates)
+        // Note: We fetch from lastDate (not lastDate+1) because Alpha Vantage requires a start date
+        // The saveToDatabase method will filter out duplicates based on date
+        const newData = await this.marketDataProvider.get_prices(ticker, existing.lastDate, yesterdayStr, interval);
+        if (newData && newData.length > 0) {
+          await this.saveToDatabase(ticker, newData, interval);
         } else {
-          console.log(`✅ ${ticker} data is up to date (last date: ${lastDate})`);
+          console.log(`⚠️  No new data returned from API for ${ticker}`);
         }
+      } else {
+        console.log(`✅ ${ticker} data is up to date (last date: ${existing.lastDate})`);
       }
     } catch (error) {
       console.error(`Error updating latest data for ${ticker}:`, error.message);

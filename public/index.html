@@ -16,25 +16,38 @@
 
     <nav>
         <div class="container">
-            <button class="nav-btn active" onclick="showSection('dashboard')">Dashboard</button>
-            <button class="nav-btn" onclick="showSection('create-user')">Create User</button>
-            <button class="nav-btn" onclick="showSection('portfolio')">Portfolio</button>
-            <button class="nav-btn" onclick="showSection('search-stocks')">Search Stocks</button>
-            <button class="nav-btn" onclick="showSection('backtest')">Backtest</button>
+            <div class="nav-left">
+                <button class="nav-btn active" onclick="showSection('dashboard')">Dashboard</button>
+                <button class="nav-btn" id="portfolio-btn" onclick="showSection('portfolio')" style="display: none;">Portfolio</button>
+                <button class="nav-btn" id="search-stocks-btn" onclick="showSection('search-stocks')" style="display: none;">Search Stocks</button>
+                <button class="nav-btn" id="backtest-btn" onclick="showSection('backtest')" style="display: none;">Backtest</button>
+            </div>
+            <div class="nav-right">
+                <span id="user-info-nav" style="display: none; margin-right: 1rem; color: white;">
+                    <span id="user-name-display"></span>
+                    <button class="nav-btn" onclick="handleLogout()" style="margin-left: 0.5rem;">Logout</button>
+                </span>
+                <button class="nav-btn" id="login-btn" onclick="showSection('login')">Login</button>
+                <button class="nav-btn" id="signup-btn" onclick="showSection('create-user')">Sign Up</button>
+            </div>
         </div>
     </nav>
 
     <main class="container">
         <!-- Dashboard Section -->
-        <section id="dashboard" class="content-section active">
+        <section id="dashboard" class="content-section">
             <h2>Dashboard</h2>
-            <div class="dashboard-grid">
+            <div id="dashboard-unauthorized" class="card">
+                <h3>Please Login</h3>
+                <p>You need to login to access your dashboard.</p>
+                <button onclick="showSection('login')">Go to Login</button>
+            </div>
+            <div id="dashboard-authorized" class="dashboard-grid" style="display: none;">
                 <div class="card">
                     <h3>User Information</h3>
                     <div id="user-info">
-                        <p>No user loaded. Create a user to get started.</p>
+                        <p>Loading...</p>
                     </div>
-                    <button onclick="showSection('create-user')">Create User</button>
                 </div>
 
                 <div class="card">
@@ -42,14 +55,34 @@
                     <div id="portfolios-list">
                         <p>Loading portfolios...</p>
                     </div>
-                    <button onclick="showSection('portfolio')">Create Portfolio</button>
+                    <button onclick="createNewPortfolio()" style="margin-top: 1rem;">Create New Portfolio</button>
                 </div>
             </div>
         </section>
 
+        <!-- Login Section -->
+        <section id="login" class="content-section">
+            <h2>Login</h2>
+            <form id="login-form" class="form">
+                <div class="form-group">
+                    <label for="login-user-id">User ID*</label>
+                    <input type="text" id="login-user-id" required placeholder="Enter your user ID">
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Password*</label>
+                    <input type="password" id="login-password" required placeholder="Enter your password">
+                </div>
+                <button type="submit">Login</button>
+            </form>
+            <div id="login-result" class="result"></div>
+            <p style="margin-top: 1rem; text-align: center;">
+                Don't have an account? <a href="#" onclick="showSection('create-user'); return false;">Sign up here</a>
+            </p>
+        </section>
+
         <!-- Create User Section -->
         <section id="create-user" class="content-section">
-            <h2>Create User</h2>
+            <h2>Sign Up</h2>
             <form id="create-user-form" class="form">
                 <div class="form-group">
                     <label for="user-id">User ID*</label>
@@ -63,23 +96,47 @@
                     <label for="user-email">Email (optional)</label>
                     <input type="email" id="user-email" placeholder="john@example.com">
                 </div>
-                <button type="submit">Create User</button>
+                <div class="form-group">
+                    <label for="user-password">Password* (min 6 characters)</label>
+                    <input type="password" id="user-password" required placeholder="Enter password" minlength="6">
+                </div>
+                <button type="submit">Create Account</button>
             </form>
             <div id="user-result" class="result"></div>
+            <p style="margin-top: 1rem; text-align: center;">
+                Already have an account? <a href="#" onclick="showSection('login'); return false;">Login here</a>
+            </p>
         </section>
 
         <!-- Portfolio Section -->
         <section id="portfolio" class="content-section">
-            <h2>Create Portfolio</h2>
-            <form id="portfolio-form" class="form">
-                <div class="form-group">
+            <div id="portfolio-form-container">
+                <h2>Create Portfolio</h2>
+                <form id="portfolio-form" class="form">
+                <div class="form-group" id="portfolio-user-id-group" style="display: none;">
                     <label for="portfolio-user-id">User ID*</label>
-                    <input type="text" id="portfolio-user-id" required placeholder="Enter your user ID">
+                    <input type="text" id="portfolio-user-id" placeholder="Auto-filled from login">
                 </div>
                 <div class="form-group">
-                    <label for="tickers">Stock Tickers* (comma-separated, max 20)</label>
-                    <textarea id="tickers" required placeholder="AAPL, MSFT, GOOGL, AMZN" rows="3"></textarea>
-                    <small>Enter stock symbols separated by commas</small>
+                    <label>Select Stocks* (max 20)</label>
+                    <div id="stocks-loading" style="padding: 1rem; text-align: center;">
+                        <span class="loading"></span> Loading available stocks...
+                    </div>
+                    <div id="stocks-selection" style="display: none;">
+                        <div style="margin-bottom: 0.5rem;">
+                            <button type="button" onclick="selectAllStocks()" style="margin-right: 0.5rem;">Select All</button>
+                            <button type="button" onclick="deselectAllStocks()">Deselect All</button>
+                            <span id="selected-count" style="margin-left: 1rem; font-weight: bold; color: var(--primary-color);">0 selected</span>
+                        </div>
+                        <div id="stocks-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.5rem; max-height: 300px; overflow-y: auto; padding: 1rem; border: 1px solid var(--border-color); border-radius: 6px; background: var(--bg-color);">
+                            <!-- Stocks will be loaded here -->
+                        </div>
+                        <small style="display: block; margin-top: 0.5rem;">Select one or more stocks from the available options</small>
+                    </div>
+                    <div id="stocks-error" style="display: none; padding: 1rem; background: #fee; border-radius: 6px; color: #c00;">
+                        <p>Error loading stocks. You can still enter tickers manually:</p>
+                        <textarea id="tickers-fallback" placeholder="AAPL, MSFT, GOOGL, AMZN" rows="3" style="width: 100%; margin-top: 0.5rem;"></textarea>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label for="horizon">Investment Horizon*</label>
@@ -93,6 +150,7 @@
                 <button type="submit">Create Portfolio</button>
             </form>
             <div id="portfolio-result" class="result"></div>
+            </div>
 
             <!-- Portfolio Management -->
             <div id="portfolio-management" style="display: none;">
