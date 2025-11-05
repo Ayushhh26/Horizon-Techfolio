@@ -76,10 +76,28 @@ module.exports = {
 
   // Trading Configuration
   trading: {
-    commission: 0.001,  // 0.1% commission per trade
+    // Commission and fees
+    commission: parseFloat(process.env.TRADING_COMMISSION) || 0, // Per trade commission (default: $0 for demo)
+    commissionPercent: parseFloat(process.env.TRADING_COMMISSION_PERCENT) || 0.001, // 0.1% commission (alternative)
     slippage: 0.0005,   // 0.05% slippage per trade
-    initialCapital: 100000, // $100,000 starting capital
+    
+    // Wallet settings
+    initialCapital: parseFloat(process.env.INITIAL_CAPITAL) || 10000, // $10,000 starting capital (changed from $100,000)
+    minBalance: 0,      // Minimum wallet balance
+    maxDeposit: 1000000, // Maximum single deposit
+    
+    // Position limits
     maxPositions: 20,   // Maximum positions in portfolio
+    minSharesPerTrade: 1, // Minimum shares per trade
+    maxSharesPerTrade: 10000, // Maximum shares per trade
+    minTradeValue: 1,   // Minimum trade value in dollars
+    maxTradeValue: 1000000, // Maximum trade value in dollars
+    
+    // Risk management
+    maxPositionSize: 0.20, // Max 20% of portfolio in single position
+    maxPortfolioRisk: 0.02, // Max 2% risk per trade
+    
+    // Data requirements
     minDataPoints: 50   // Minimum data points for indicators
   },
 

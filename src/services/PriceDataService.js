@@ -230,6 +230,28 @@ class PriceDataService {
       return [];
     }
   }
+
+  /**
+   * Get the most recent price data point for a ticker
+   * Used for getting current market price for trading
+   */
+  async getLatestPrice(ticker, interval = 'daily') {
+    try {
+      const priceDataDoc = await PriceDataModel.findOne({ ticker, interval });
+      
+      if (!priceDataDoc || !priceDataDoc.data || priceDataDoc.data.length === 0) {
+        return null;
+      }
+
+      // Return the most recent data point (data is sorted by date)
+      const latestDataPoint = priceDataDoc.data[priceDataDoc.data.length - 1];
+      
+      return latestDataPoint;
+    } catch (error) {
+      console.error(`Error getting latest price for ${ticker}:`, error.message);
+      return null;
+    }
+  }
 }
 
 module.exports = PriceDataService;

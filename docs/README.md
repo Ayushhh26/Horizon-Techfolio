@@ -18,6 +18,10 @@ Setup and configuration documentation:
 - `SCHEMA_REVIEW.md` - Database schema documentation
 - `TECHNICAL_INDICATORS.md` - Technical indicators explanation
 
+### `/features/`
+Feature-specific documentation:
+- `TRADING_SYSTEM.md` - Complete trading system guide (buy/sell, wallet, transactions)
+
 ### `/project/`
 Project planning and management:
 - `PROJECT_PLAN.md` - Complete project implementation plan
@@ -63,9 +67,11 @@ The following documentation remains in the root directory:
 | Price Data Strategy | `/docs/setup/PRICE_DATA_STRATEGY.md` | Data management |
 | Schema Review | `/docs/setup/SCHEMA_REVIEW.md` | Database schema |
 | Technical Indicators | `/docs/setup/TECHNICAL_INDICATORS.md` | Indicator guide |
+| Trading System | `/docs/features/TRADING_SYSTEM.md` | Trading & wallet guide |
 
 ## 🔄 Updates
 
+- **2025-11-05**: Implemented trading system with wallet management
 - **2025-11-05**: Organized documentation into `/docs` directory structure
 - **2025-11-05**: Completed Express.js backend migration
 - **2025-11-04**: Added user authentication and frontend

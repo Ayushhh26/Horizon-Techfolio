@@ -15,6 +15,8 @@ HorizonTrader computes technical indicators, derives strategy signals (Buy/Hold/
 - **Technical Analysis**: SMA, EMA, RSI, MACD, Bollinger Bands
 - **Strategy Recommendations**: 4 pre-built strategies with frequency recommendations
 - **Portfolio Management**: Track ~20 stocks with rebalancing
+- **Trading System**: Buy/sell stocks with dummy money, wallet management, transaction tracking
+- **User Authentication**: Secure login and registration with JWT tokens
 - **Backtesting**: Historical performance with realistic costs
 - **Paper Trading**: Real-time validation against current prices
 - **Coupled Trades**: Pairs trading and hedging strategies
@@ -77,11 +79,31 @@ HorizonTrader computes technical indicators, derives strategy signals (Buy/Hold/
 
 The server runs on `http://localhost:3000` and provides the following endpoints:
 
+### User Management
+- `POST /user` - Create new user
+- `POST /login` - User login (returns JWT token)
+- `POST /verify` - Verify JWT token
+- `GET /user/:userId/portfolios` - Get user's portfolios
+
 ### Portfolio Management
 - `POST /portfolio/initialize` - Create portfolio with tickers + horizon
 - `GET /portfolio/:id/signals` - Current buy/hold/sell signals
 - `GET /portfolio/:id/strategy` - Recommended strategy + frequency
 - `GET /portfolio/:id/performance` - Current performance metrics
+
+### Trading & Wallet
+- `GET /wallet/:userId` - Get wallet details
+- `POST /wallet/buy` - Buy stocks
+- `POST /wallet/sell` - Sell stocks
+- `POST /wallet/deposit` - Deposit funds (demo)
+- `GET /wallet/:userId/transactions` - Transaction history
+- `GET /wallet/:userId/holdings` - View all holdings
+- `GET /wallet/:userId/summary` - Complete wallet summary
+
+### Stock Data
+- `POST /stocks/search` - Validate stock tickers
+- `GET /stocks/popular` - Get popular stock list
+- `GET /stocks/available` - Get stocks with data in database
 
 ### Backtesting & Validation
 - `POST /backtest` - Run historical backtest, return metrics
@@ -92,7 +114,7 @@ The server runs on `http://localhost:3000` and provides the following endpoints:
 
 ### System
 - `GET /health` - Health check
-- `GET /` - API information
+- `GET /api` - API information
 
 ## Usage Examples
 

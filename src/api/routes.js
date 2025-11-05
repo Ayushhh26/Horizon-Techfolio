@@ -7,16 +7,19 @@ const Security = require('../models/Security');
 const Portfolio = require('../models/Portfolio');
 const Strategy = require('../models/Strategy');
 const StrategyService = require('../services/StrategyService');
+const TradingService = require('../services/TradingService');
 const DBService = require('../db/dbService');
 const PriceDataService = require('../services/PriceDataService');
 const AuthService = require('../services/AuthService');
 const dailyUpdateService = require('../services/DailyUpdateService');
 const PriceDataModel = require('../db/models/PriceDataModel');
 const { isDBConnected } = require('../db/connection');
+const config = require('../../config/config');
 // Note: BacktestSession, CoupledTrade, and PaperTradingService will be implemented in later phases
 
 const strategyService = new StrategyService();
 const priceDataService = new PriceDataService();
+const tradingService = new TradingService();
 
 /**
  * Initialize a new portfolio with tickers and horizon
@@ -488,10 +491,21 @@ async function createUser(body) {
 
     await DBService.saveUser(userId, name, email || null, password || null);
     
+    // Automatically create wallet with default initial balance
+    const initialBalance = config.trading?.initialCapital || 10000;
+    try {
+      await tradingService.getOrCreateWallet(userId, initialBalance);
+      console.log(`✅ Wallet created for user ${userId} with $${initialBalance} initial balance`);
+    } catch (walletError) {
+      console.error(`⚠️  Failed to create wallet for user ${userId}:`, walletError.message);
+      // Don't fail user creation if wallet creation fails
+    }
+    
     return {
       userId,
       name,
       email: email || null,
+      initialBalance,
       message: password ? 'User created successfully with password' : 'User created successfully (no password set)'
     };
   } catch (error) {

@@ -180,6 +180,109 @@ const validateCoupledTrade = [
   validate
 ];
 
+/**
+ * Validation chains for buy stock
+ */
+const validateBuyStock = [
+  body('userId')
+    .isString()
+    .trim()
+    .notEmpty()
+    .withMessage('User ID is required'),
+  body('ticker')
+    .isString()
+    .trim()
+    .isLength({ min: 1, max: 10 })
+    .isUppercase()
+    .withMessage('Ticker must be 1-10 uppercase characters'),
+  body('quantity')
+    .isInt({ min: 1, max: 10000 })
+    .withMessage('Quantity must be an integer between 1 and 10,000'),
+  body('portfolioId')
+    .optional()
+    .isString()
+    .trim()
+    .withMessage('Portfolio ID must be a string'),
+  validate
+];
+
+/**
+ * Validation chains for sell stock
+ */
+const validateSellStock = [
+  body('userId')
+    .isString()
+    .trim()
+    .notEmpty()
+    .withMessage('User ID is required'),
+  body('ticker')
+    .isString()
+    .trim()
+    .isLength({ min: 1, max: 10 })
+    .isUppercase()
+    .withMessage('Ticker must be 1-10 uppercase characters'),
+  body('quantity')
+    .isInt({ min: 1, max: 10000 })
+    .withMessage('Quantity must be an integer between 1 and 10,000'),
+  body('portfolioId')
+    .optional()
+    .isString()
+    .trim()
+    .withMessage('Portfolio ID must be a string'),
+  validate
+];
+
+/**
+ * Validation chains for deposit funds
+ */
+const validateDeposit = [
+  body('userId')
+    .isString()
+    .trim()
+    .notEmpty()
+    .withMessage('User ID is required'),
+  body('amount')
+    .isFloat({ min: 0.01, max: 1000000 })
+    .withMessage('Amount must be between $0.01 and $1,000,000'),
+  body('notes')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Notes must be less than 500 characters'),
+  validate
+];
+
+/**
+ * Validation chains for transaction history
+ */
+const validateTransactionHistory = [
+  param('userId')
+    .isString()
+    .trim()
+    .notEmpty()
+    .withMessage('User ID is required'),
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 500 })
+    .withMessage('Limit must be between 1 and 500'),
+  query('skip')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Skip must be a non-negative integer'),
+  query('ticker')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ min: 1, max: 10 })
+    .withMessage('Ticker must be 1-10 characters'),
+  query('type')
+    .optional()
+    .isIn(['buy', 'sell', 'deposit', 'withdrawal'])
+    .withMessage('Type must be one of: buy, sell, deposit, withdrawal'),
+  validate
+];
+
 module.exports = {
   validate,
   validatePortfolioCreation,
@@ -190,6 +293,10 @@ module.exports = {
   validateUserId,
   validateStockSearch,
   validateBacktest,
-  validateCoupledTrade
+  validateCoupledTrade,
+  validateBuyStock,
+  validateSellStock,
+  validateDeposit,
+  validateTransactionHistory
 };
 

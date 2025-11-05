@@ -10,6 +10,7 @@ const router = express.Router();
 const portfolioRoutes = require('./portfolio.routes');
 const userRoutes = require('./user.routes');
 const stockRoutes = require('./stock.routes');
+const walletRoutes = require('./wallet.routes');
 const backtestRoutes = require('./backtest.routes');
 const papertradingRoutes = require('./papertrading.routes');
 const coupledtradeRoutes = require('./coupledtrade.routes');
@@ -24,6 +25,9 @@ router.use('/auth', userRoutes);
 
 // Stock routes: /stocks/*
 router.use('/stocks', stockRoutes);
+
+// Wallet routes: /wallet/*
+router.use('/wallet', walletRoutes);
 
 // Backtest routes: /backtest/*
 router.use('/backtest', backtestRoutes);
