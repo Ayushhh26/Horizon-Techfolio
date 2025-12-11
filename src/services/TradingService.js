@@ -31,6 +31,7 @@ class TradingService {
   /**
    * Get wallet details with portfolio value
    * Creates a wallet automatically if one doesn't exist
+   * OPTIMIZED: Uses DB-only price lookups in parallel (no API calls to prevent timeouts)
    */
   async getWalletDetails(userId) {
     try {
@@ -41,15 +42,56 @@ class TradingService {
       const portfolios = await PortfolioModel.find({ userId });
       let totalHoldingsValue = 0;
 
+      // Collect all unique tickers from all positions
+      const allTickers = new Set();
+      const positionData = [];
       for (const portfolio of portfolios) {
         if (portfolio.positions && portfolio.positions.length > 0) {
           for (const position of portfolio.positions) {
-            // Get current price
-            const currentPrice = await this.getCurrentPrice(position.ticker);
-            if (currentPrice) {
-              totalHoldingsValue += position.quantity * currentPrice;
+            if (position.ticker && position.quantity > 0) {
+              allTickers.add(position.ticker.toUpperCase());
+              positionData.push({
+                ticker: position.ticker,
+                quantity: position.quantity
+              });
             }
           }
+        }
+      }
+
+      // Batch fetch all prices from database in parallel (DB-only, no API calls)
+      if (allTickers.size > 0) {
+        const tickerArray = Array.from(allTickers);
+        const PriceDataModel = require('../db/models/PriceDataModel');
+        
+        // Single batch query instead of sequential queries
+        const priceDocs = await PriceDataModel.find({
+          ticker: { $in: tickerArray },
+          interval: 'daily'
+        });
+
+        // Build price map for O(1) lookup
+        const priceMap = new Map();
+        for (const priceDoc of priceDocs) {
+          if (priceDoc && priceDoc.data && priceDoc.data.length > 0) {
+            const latestPrice = priceDoc.data[priceDoc.data.length - 1];
+            if (latestPrice && latestPrice.close) {
+              const price = parseFloat(latestPrice.close);
+              if (!isNaN(price) && price > 0) {
+                priceMap.set(priceDoc.ticker.toUpperCase(), price);
+              }
+            }
+          }
+        }
+
+        // Calculate total holdings value using fetched prices
+        for (const pos of positionData) {
+          const tickerUpper = pos.ticker.toUpperCase();
+          const currentPrice = priceMap.get(tickerUpper);
+          if (currentPrice) {
+            totalHoldingsValue += pos.quantity * currentPrice;
+          }
+          // If price not found, skip it (don't call API - prevents timeout)
         }
       }
 
@@ -302,15 +344,25 @@ class TradingService {
         return parseFloat(priceData.close);
       }
 
-      // Fallback to API
+      // Fallback to API with timeout (5 seconds max to prevent hanging)
       console.log(`Fetching current price for ${ticker} from API...`);
-      const quote = await this.marketDataProvider.getQuote(ticker);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('API timeout after 5 seconds')), 5000)
+      );
+      
+      const quotePromise = this.marketDataProvider.getQuote(ticker);
+      const quote = await Promise.race([quotePromise, timeoutPromise]);
+      
       if (quote && quote.price) {
         return parseFloat(quote.price);
       }
 
       throw new Error('Unable to retrieve current price');
     } catch (error) {
+      if (error.message.includes('timeout')) {
+        console.warn(`⚠️  API timeout for ${ticker} - returning null`);
+        return null;
+      }
       console.error(`Error getting current price for ${ticker}:`, error);
       throw new Error(`Unable to get current price for ${ticker}`);
     }

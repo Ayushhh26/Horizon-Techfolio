@@ -125,9 +125,9 @@ class BacktestEngine {
 
     console.log(`\n========== BACKTEST COMPLETE ==========`);
     console.log(`Final Portfolio Value: $${metrics.finalValue.toLocaleString()}`);
-    console.log(`Total Return: ${(metrics.totalReturn * 100).toFixed(2)}%`);
+    console.log(`Total Return: ${metrics.totalReturn.toFixed(2)}%`);
     console.log(`Total Trades: ${metrics.totalTrades}`);
-    console.log(`Win Rate: ${(metrics.winRate * 100).toFixed(1)}%`);
+    console.log(`Win Rate: ${metrics.winRate.toFixed(1)}%`);
     console.log(`========================================\n`);
 
     return {
@@ -371,14 +371,14 @@ class BacktestEngine {
     const sharpeRatio = this.calculateSharpeRatio();
 
     return {
-      totalReturn,
-      cagr,
+      totalReturn: totalReturn * 100, // Convert to percentage (8.15 for 8.15%)
+      cagr: cagr * 100, // Convert to percentage
       sharpeRatio,
-      maxDrawdown,
-      winRate,
+      maxDrawdown: maxDrawdown * 100, // Convert to percentage
+      winRate: winRate * 100, // Convert to percentage (50 for 50%)
       totalTrades,
       profitableTrades,
-      averageReturn,
+      averageReturn: averageReturn * 100, // Convert to percentage
       finalValue,
       initialCapital: this.initialCapital
     };

@@ -151,46 +151,91 @@ class DBService {
   static async getUserPortfolios(userId) {
     if (this.useDatabase()) {
       try {
-        const portfolioDocs = await PortfolioModel.find({ userId }).sort({ createdAt: -1 });
+        const startTime = Date.now();
+        const portfolioDocs = await PortfolioModel.find({ userId }).sort({ createdAt: -1 }).limit(50); // Limit to 50 portfolios max
+        
+        if (portfolioDocs.length === 0) {
+          return [];
+        }
         
         // Fetch current prices for all unique tickers across all portfolios
         const allTickers = new Set();
+        const tickerCaseMap = new Map(); // Map uppercase to original case
         portfolioDocs.forEach(doc => {
           (doc.positions || []).forEach(pos => {
-            if (pos.ticker) allTickers.add(pos.ticker);
+            if (pos.ticker) {
+              const tickerUpper = pos.ticker.toUpperCase();
+              allTickers.add(tickerUpper);
+              tickerCaseMap.set(tickerUpper, pos.ticker);
+            }
           });
           (doc.securities || []).forEach(sec => {
-            if (sec.ticker) allTickers.add(sec.ticker);
+            if (sec.ticker) {
+              const tickerUpper = sec.ticker.toUpperCase();
+              allTickers.add(tickerUpper);
+              tickerCaseMap.set(tickerUpper, sec.ticker);
+            }
           });
         });
         
-        // Get current prices from price data
+        // OPTIMIZED: Batch fetch all prices in a single query with timeout protection
         const currentPrices = new Map();
-        for (const ticker of allTickers) {
+        if (allTickers.size > 0) {
           try {
-            // Try both uppercase and original case
-            const tickerUpper = ticker.toUpperCase();
-            let priceDoc = await PriceDataModel.findOne({ ticker: tickerUpper, interval: 'daily' });
-            if (!priceDoc) {
-              priceDoc = await PriceDataModel.findOne({ ticker: ticker, interval: 'daily' });
-            }
-            if (priceDoc && priceDoc.data && priceDoc.data.length > 0) {
-              const latestPrice = priceDoc.data[priceDoc.data.length - 1];
-              if (latestPrice && latestPrice.close) {
-                const price = parseFloat(latestPrice.close);
+            const tickerArray = Array.from(allTickers);
+            console.log(`📊 Fetching prices for ${tickerArray.length} unique tickers across ${portfolioDocs.length} portfolios`);
+            
+            const priceFetchStartTime = Date.now();
+            
+            // OPTIMIZED: Use aggregation to get only the last price point (much faster than fetching entire data array)
+            // This reduces data transfer from MongoDB by ~99% (only last price vs entire history)
+            const priceFetchPromise = PriceDataModel.aggregate([
+              {
+                $match: {
+                  ticker: { $in: tickerArray },
+                  interval: 'daily'
+                }
+              },
+              {
+                $project: {
+                  ticker: 1,
+                  latestPrice: { $arrayElemAt: ['$data', -1] } // Get only the last element
+                }
+              }
+            ]);
+            
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Price fetch timeout after 10 seconds')), 10000)
+            );
+            
+            const priceDocs = await Promise.race([priceFetchPromise, timeoutPromise]);
+
+            // Build price map for O(1) lookup
+            for (const priceDoc of priceDocs) {
+              if (priceDoc && priceDoc.latestPrice && priceDoc.latestPrice.close) {
+                const price = parseFloat(priceDoc.latestPrice.close);
                 if (!isNaN(price) && price > 0) {
-                  // Store with both uppercase and original case for lookup
+                  const tickerUpper = priceDoc.ticker.toUpperCase();
+                  // Store with uppercase key
                   currentPrices.set(tickerUpper, price);
-                  currentPrices.set(ticker, price);
+                  // Also store with original case if different
+                  const originalCase = tickerCaseMap.get(tickerUpper);
+                  if (originalCase && originalCase !== tickerUpper) {
+                    currentPrices.set(originalCase, price);
+                  }
                 }
               }
             }
+            
+            const priceFetchTime = Date.now() - priceFetchStartTime;
+            console.log(`✅ Fetched ${currentPrices.size} prices in ${priceFetchTime}ms (using aggregation)`);
           } catch (priceError) {
-            console.warn(`Could not fetch price for ${ticker}:`, priceError.message);
+            console.warn(`⚠️  Error batch fetching prices:`, priceError.message);
+            // Continue without prices - portfolios will show with 0 current price
           }
         }
         
-        return portfolioDocs.map(doc => {
+        const portfolios = portfolioDocs.map(doc => {
           // Get cash value - prefer saved value, fallback to initialCapital, then default
           let cash = doc.cash;
           if (cash === null || cash === undefined || cash === 0) {
@@ -210,25 +255,15 @@ class DBService {
             // Try to get price with both uppercase and original case
             let currentPrice = currentPrices.get(ticker) || currentPrices.get(tickerUpper);
             
-            // If price not found, log warning but don't use avgCost (which makes P&L always 0)
-            if (currentPrice === undefined && quantity > 0) {
-              console.warn(`⚠️  No current price found for ${ticker} (tried ${ticker} and ${tickerUpper}), using last known price or 0`);
-              // Don't use avgCost as fallback - that makes P&L always show $0.00
-              // Instead, try to get from position data or use 0
+            // If price not found, use 0 (don't use avgCost as fallback - that makes P&L always 0)
+            if (currentPrice === undefined) {
               currentPrice = pos.currentPrice || 0;
-            } else if (currentPrice === undefined) {
-              currentPrice = 0;
             }
             
             const marketValue = quantity * currentPrice;
             const costBasis = quantity * avgCost;
             const pnl = marketValue - costBasis;
             const pnlPercent = costBasis > 0 ? ((pnl / costBasis) * 100) : 0;
-            
-            // Debug log for positions with unexpected P&L
-            if (quantity > 0 && avgCost > 0 && currentPrice > 0 && Math.abs(pnl) < 0.01) {
-              console.log(`🔍 ${ticker}: qty=${quantity}, avgCost=${avgCost.toFixed(2)}, currentPrice=${currentPrice.toFixed(2)}, pnl=${pnl.toFixed(2)}`);
-            }
             
             return {
               ticker,
@@ -281,8 +316,18 @@ class DBService {
             createdAt: doc.createdAt
           };
         });
+        
+        const totalTime = Date.now() - startTime;
+        if (totalTime > 5000) {
+          console.warn(`⚠️  getUserPortfolios took ${totalTime}ms (slow)`);
+        } else {
+          console.log(`✅ Loaded ${portfolios.length} portfolios in ${totalTime}ms`);
+        }
+        return portfolios;
       } catch (error) {
-        console.error('Error loading user portfolios from database:', error.message);
+        const totalTime = Date.now() - startTime;
+        console.error(`❌ Error loading user portfolios after ${totalTime}ms:`, error.message);
+        // Return empty array on error to prevent frontend timeout
         return [];
       }
     } else {

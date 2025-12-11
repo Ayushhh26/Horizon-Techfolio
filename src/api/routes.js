@@ -558,18 +558,40 @@ async function getCuratedPortfolioOptions(horizon = null) {
  */
 async function getPortfolioSignals(portfolioId) {
   try {
-    const portfolio = await DBService.getPortfolio(portfolioId);
-    if (!portfolio) {
+    // Get portfolio from database directly to access all securities
+    const PortfolioModel = require('../db/models/PortfolioModel');
+    const portfolioDoc = await PortfolioModel.findOne({ portfolioId });
+    if (!portfolioDoc) {
       throw new Error('Portfolio not found');
     }
 
     console.log(`Getting signals for portfolio ${portfolioId}`);
     
+    // Get all tickers from portfolio securities (not just positions)
+    // This ensures we get signals for ALL stocks in the portfolio, not just ones with positions
+    const allTickers = new Set();
+    if (portfolioDoc.securities && portfolioDoc.securities.length > 0) {
+      portfolioDoc.securities.forEach(sec => {
+        if (sec.ticker) allTickers.add(sec.ticker.toUpperCase());
+      });
+    }
+    // Also include tickers from positions (in case securities array is missing)
+    if (portfolioDoc.positions && portfolioDoc.positions.length > 0) {
+      portfolioDoc.positions.forEach(pos => {
+        if (pos.ticker) allTickers.add(pos.ticker.toUpperCase());
+      });
+    }
+    
+    const tickerArray = Array.from(allTickers);
+    if (tickerArray.length === 0) {
+      throw new Error('No tickers found in portfolio');
+    }
+    
     // Get recommended strategy
     const recommendation = strategyService.recommendStrategy({
-      horizon: portfolio.horizon,
+      horizon: portfolioDoc.horizon,
       riskTolerance: 'medium',
-      portfolioSize: portfolio.getTickers().length
+      portfolioSize: tickerArray.length
     });
     
     const strategy = recommendation.strategyObject;
@@ -582,33 +604,39 @@ async function getPortfolioSignals(portfolioId) {
     startDate.setFullYear(startDate.getFullYear() - 1); // Get last year of data for indicators
     const startDateStr = startDate.toISOString().split('T')[0];
     
-    for (const ticker of portfolio.getTickers()) {
-      const position = portfolio.getPosition(ticker);
-      if (position) {
-        try {
-          // Use PriceDataService which checks DB first, then cache, then API
-          const priceData = await priceDataService.getPriceData(ticker, startDateStr, endDate, 'daily');
-          if (priceData && priceData.length > 0) {
-            priceDataMap.set(ticker, priceData);
-          } else {
-            console.warn(`No price data available for ${ticker}`);
-          }
-        } catch (error) {
-          console.warn(`Failed to fetch data for ${ticker}:`, error.message);
+    // Fetch price data for ALL tickers in parallel
+    const priceDataPromises = tickerArray.map(async (ticker) => {
+      try {
+        // Use PriceDataService which checks DB first, then cache, then API
+        const priceData = await priceDataService.getPriceData(ticker, startDateStr, endDate, 'daily');
+        if (priceData && priceData.length > 0) {
+          return { ticker, priceData };
+        } else {
+          console.warn(`No price data available for ${ticker}`);
+          return { ticker, priceData: null };
         }
+      } catch (error) {
+        console.warn(`Failed to fetch data for ${ticker}:`, error.message);
+        return { ticker, priceData: null };
       }
-    }
+    });
+    
+    const priceDataResults = await Promise.all(priceDataPromises);
+    priceDataResults.forEach(({ ticker, priceData }) => {
+      if (priceData) {
+        priceDataMap.set(ticker, priceData);
+      }
+    });
     
     // Generate signals
     const signals = strategy.generate_signals(priceDataMap);
     
     // Ensure all tickers have signals (add default for missing data)
-    const allTickers = portfolio.getTickers();
     const signalArray = Array.from(signals.values());
     
     // Add default signals for tickers without price data
-    for (const ticker of allTickers) {
-      const hasSignal = signalArray.some(s => s.ticker === ticker);
+    for (const ticker of tickerArray) {
+      const hasSignal = signalArray.some(s => s.ticker && s.ticker.toUpperCase() === ticker);
       if (!hasSignal) {
         signalArray.push({
           ticker,
